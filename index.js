@@ -1,3 +1,7 @@
+// noffle: hey, since you're rewriting this anyways, what do you think about
+// writing the code in such a way that the hyperdb/trie code lives separate
+// from the hypercore multiwrite code? This would make splitting
+// hypercore-multiwriter into its own module in the future much easier.
 var hypercore = require('hypercore')
 var ram = require('random-access-memory')
 var sodium = require('sodium-universal')
@@ -14,6 +18,8 @@ function DB () {
 
 DB.prototype.snapshot = function () {
   var snapshot = new DB()
+  // noffle: Won't this reference to _feeds be mutated if the original db
+  // mutates its _feeds? _feeds.length may also stop matching.
   snapshot._feeds = this._feeds
   snapshot._length = this._feeds.length
   return snapshot
@@ -43,9 +49,14 @@ DB.prototype.put = function (key, val, cb) {
     return cb(null)
   }
 
+  // noffle: maybe split the part below into an 'updateTrieForNewNode'
+  // function?
+
   var head = writable[writable.length - 1]
 
   // each bucket works as a bitfield
+  // noffle: "index" == "trie"?
+  // noffle: "key" == "path element"?
   // i.e. an index corresponds to a key (2 bit value) + 0b100 (hash.TERMINATE)
   // since this is eventual consistent + hash collisions there can be more than
   // one value for each key so this is a two dimensional array
@@ -57,7 +68,7 @@ DB.prototype.put = function (key, val, cb) {
 
   for (var i = 0; i < path.length; i++) {
     var val = path[i] // the two bit value
-    var headVal = head.path[i] // the two value of the current head
+    var headVal = head.path[i] // the two bit value of the current head
 
     localBucket = node.trie[i] // forks in the trie for this index
     remoteBucket = head.trie[i] || [] // remote forks
@@ -166,6 +177,7 @@ DB.prototype.list = function (prefix, opts, cb) {
   var ite = this.iterator(prefix, opts)
   var list = []
 
+  // noffle: woah, iterators are super cool! nice abstraction
   ite.next(loop)
 
   function loop (err, nodes) {
@@ -184,6 +196,7 @@ DB.prototype.createReadStream = function (prefix, opts) {
   var ite = this.iterator(prefix, opts)
   var from = require('from2')
 
+  // noffle: so simple! <3
   return from.obj(read)
 
   function read (size, cb) {
